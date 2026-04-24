@@ -15,7 +15,7 @@ const selectedCell = ref<QuestionCell | null>(null)
 
 onMounted(() => {
   if (gameStore.phase !== 'playing' || gameStore.categories.length === 0) {
-    router.replace('/setup')
+    router.replace('/quizzes')
   }
 })
 
@@ -32,7 +32,7 @@ function closeModal() {
 
 function backToSetup() {
   gameStore.resetGame()
-  router.push('/setup')
+  router.push('/quizzes')
 }
 </script>
 
@@ -45,7 +45,7 @@ function backToSetup() {
         <div class="progress-info">
           {{ gameStore.playedCells }} / {{ gameStore.totalCells }} questions
         </div>
-        <button class="btn-back" @click="backToSetup">Retour au setup</button>
+        <button class="btn-back" @click="backToSetup">Retour aux quizz</button>
       </div>
     </div>
 

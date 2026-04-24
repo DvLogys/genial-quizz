@@ -1,0 +1,53 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Keep relative by default so nginx proxies /api to the backend service.
+        # Override only if you serve the backend from a different origin.
+        VITE_API_URL: ${VITE_API_URL:-/api}
+    image: genial-quizz-frontend:latest
+    container_name: genial-quizz-frontend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  backend:
+    # Replace this with your backend image that implements openapi.yaml.
+    # The frontend expects it reachable at http://backend:3000 inside the
+    # compose network and to respond under /api/*.
+    image: ${BACKEND_IMAGE:-genial-quizz-backend:latest}
+    container_name: genial-quizz-backend
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    container_name: genial-quizz-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  db-data:

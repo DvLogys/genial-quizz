@@ -1,0 +1,491 @@
+openapi: 3.1.0
+info:
+  title: Genial Quizz API
+  version: 1.0.0
+  description: |
+    Backend API for Genial Quizz, a Jeopardy-style quiz game with a presenter-only
+    panel (players are in the same physical room or following via stream, so the
+    API has no realtime/player endpoints).
+
+    Authentication uses JWT bearer tokens. Authenticated users can create, edit and
+    delete their own quizzes. Quizzes may be toggled public so that anonymous
+    visitors can fetch them and run a game.
+  contact:
+    name: Genial Quizz
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+  - url: https://api.example.com
+    description: Production (replace with real host)
+
+tags:
+  - name: auth
+    description: Registration, login and session user
+  - name: quizzes
+    description: Quiz CRUD and public browsing
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Register a new user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthCredentials'
+            examples:
+              simple:
+                value: { username: julien, password: s3cret-pass }
+      responses:
+        '201':
+          description: User created and logged in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: Username already taken
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Log in with username + password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthCredentials'
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Get the current authenticated user
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /quizzes:
+    get:
+      tags: [quizzes]
+      summary: List quizzes owned by the authenticated user
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QuizSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [quizzes]
+      summary: Create a new quiz
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuizInput'
+      responses:
+        '201':
+          description: Quiz created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuizDetail'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /quizzes/public:
+    get:
+      tags: [quizzes]
+      summary: List all public quizzes
+      description: Does not require authentication. Returns quizzes with `isPublic = true`.
+      security: []
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+          description: Optional search term (matches name or owner username)
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QuizSummary'
+
+  /quizzes/{id}:
+    parameters:
+      - $ref: '#/components/parameters/QuizId'
+    get:
+      tags: [quizzes]
+      summary: Get a quiz by ID
+      description: |
+        Accessible without authentication if the quiz is public. For private
+        quizzes, only the owner may fetch the detail.
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuizDetail'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [quizzes]
+      summary: Replace an existing quiz (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuizInput'
+      responses:
+        '200':
+          description: Quiz updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuizDetail'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [quizzes]
+      summary: Delete a quiz (owner only)
+      responses:
+        '204':
+          description: Quiz deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Issue a JWT via `/auth/login` or `/auth/register` and send it as
+        `Authorization: Bearer <token>`. Tokens are stateless; implementations
+        should include at minimum the `sub` (user id), `username`, `iat` and
+        `exp` claims.
+
+  parameters:
+    QuizId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+      description: Quiz identifier (UUID or opaque string)
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid authentication
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Authenticated but not allowed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ValidationError:
+      description: Request body failed validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          description: Human-readable error message
+        code:
+          type: string
+          description: Machine-readable error code
+        details:
+          type: object
+          description: Optional field-level validation details
+          additionalProperties: true
+
+    AuthCredentials:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          pattern: '^[a-zA-Z0-9_-]+$'
+        password:
+          type: string
+          minLength: 8
+          maxLength: 200
+          format: password
+
+    AuthResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+          description: JWT bearer token
+        user:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      required: [id, username, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    QuizSummary:
+      type: object
+      required:
+        - id
+        - name
+        - ownerId
+        - ownerUsername
+        - isPublic
+        - categoryCount
+        - questionCount
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        ownerId:
+          type: string
+          format: uuid
+        ownerUsername:
+          type: string
+        isPublic:
+          type: boolean
+        categoryCount:
+          type: integer
+          minimum: 0
+        questionCount:
+          type: integer
+          minimum: 0
+          description: Total number of question cells across all categories
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    QuizDetail:
+      allOf:
+        - $ref: '#/components/schemas/QuizSummary'
+        - type: object
+          required: [categories, pointTiers, questions]
+          properties:
+            categories:
+              type: array
+              items:
+                type: string
+              description: Category names, in column order
+              minItems: 1
+            pointTiers:
+              type: array
+              items:
+                type: integer
+                minimum: 0
+              description: Points per row (shared across all categories)
+              minItems: 1
+            questions:
+              type: array
+              description: |
+                Two-dimensional array indexed `questions[categoryIndex][tierIndex]`.
+                The outer length must equal `categories.length` and each inner
+                array length must equal `pointTiers.length`.
+              items:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Question'
+
+    QuizInput:
+      type: object
+      required: [name, isPublic, categories, pointTiers, questions]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        isPublic:
+          type: boolean
+          default: false
+        categories:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+            maxLength: 60
+        pointTiers:
+          type: array
+          minItems: 1
+          items:
+            type: integer
+            minimum: 0
+        questions:
+          type: array
+          description: Same shape as `QuizDetail.questions`
+          items:
+            type: array
+            items:
+              $ref: '#/components/schemas/Question'
+
+    Question:
+      oneOf:
+        - $ref: '#/components/schemas/DirectQuestion'
+        - $ref: '#/components/schemas/GuessTheMostQuestion'
+      discriminator:
+        propertyName: type
+        mapping:
+          direct: '#/components/schemas/DirectQuestion'
+          guess_the_most: '#/components/schemas/GuessTheMostQuestion'
+
+    DirectQuestion:
+      type: object
+      required: [type, text, answer]
+      properties:
+        type:
+          type: string
+          enum: [direct]
+        text:
+          type: string
+          description: Question prompt shown to players
+        answer:
+          type: string
+          description: Expected answer (free-form, judged by the presenter)
+        imageUrl:
+          type: string
+          nullable: true
+          description: |
+            Optional illustration. Accepts either an external URL (`https://...`)
+            or an inline `data:image/...;base64,...` URL for user-uploaded files.
+          maxLength: 2000000
+
+    GuessTheMostQuestion:
+      type: object
+      required: [type, text, words]
+      properties:
+        type:
+          type: string
+          enum: [guess_the_most]
+        text:
+          type: string
+        words:
+          type: array
+          minItems: 1
+          description: The valid answers. Points are split evenly across them during play.
+          items:
+            $ref: '#/components/schemas/GuessWord'
+        imageUrl:
+          type: string
+          nullable: true
+          description: Same rules as `DirectQuestion.imageUrl`
+          maxLength: 2000000
+
+    GuessWord:
+      type: object
+      required: [word]
+      properties:
+        word:
+          type: string
+          minLength: 1
+        foundBy:
+          type: string
+          nullable: true
+          description: |
+            Legacy field kept for round-tripping client exports. The API should
+            accept and return it as `null`; runtime "found by" assignment is
+            tracked in the presenter UI and is not persisted.

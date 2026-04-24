@@ -42,3 +42,40 @@ export interface Category {
 export const POINT_TIERS = [100, 200, 300, 500, 700, 1000] as const
 
 export type PointTier = (typeof POINT_TIERS)[number]
+
+export interface User {
+  id: string
+  username: string
+  createdAt: string
+}
+
+export interface AuthResponse {
+  token: string
+  user: User
+}
+
+export interface QuizSummary {
+  id: string
+  name: string
+  ownerId: string
+  ownerUsername: string
+  isPublic: boolean
+  categoryCount: number
+  questionCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface QuizDetail extends QuizSummary {
+  categories: string[]
+  pointTiers: number[]
+  questions: Question[][]
+}
+
+export interface QuizInput {
+  name: string
+  isPublic: boolean
+  categories: string[]
+  pointTiers: number[]
+  questions: Question[][]
+}
