@@ -1,28 +1,35 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter, useRoute, RouterLink } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { RouterLink } from 'vue-router'
+import * as authApi from '@/api/auth'
 import { ApiError } from '@/api/client'
 
-const router = useRouter()
-const route = useRoute()
-const authStore = useAuthStore()
-
-const username = ref('')
-const password = ref('')
+const email = ref('')
 const error = ref<string | null>(null)
 const submitting = ref(false)
+const sent = ref(false)
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 async function onSubmit() {
-  if (!username.value.trim() || !password.value) return
   error.value = null
+  const mail = email.value.trim()
+  if (!EMAIL_RE.test(mail)) {
+    error.value = 'Email invalide'
+    return
+  }
   submitting.value = true
   try {
-    await authStore.login(username.value.trim(), password.value)
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/quizzes'
-    router.replace(redirect)
+    await authApi.requestPasswordReset(mail)
+    sent.value = true
   } catch (e) {
-    error.value = e instanceof ApiError ? e.message : 'Erreur de connexion'
+    // Always behave the same as success to avoid email enumeration,
+    // but surface server errors that aren't 404.
+    if (e instanceof ApiError && e.status !== 404) {
+      error.value = e.message
+    } else {
+      sent.value = true
+    }
   } finally {
     submitting.value = false
   }
@@ -33,40 +40,34 @@ async function onSubmit() {
   <div class="auth-page">
     <div class="auth-card">
       <h1 class="auth-title">GENIAL QUIZZ</h1>
-      <p class="auth-subtitle">Connexion</p>
+      <p class="auth-subtitle">Mot de passe oublié</p>
 
-      <form class="auth-form" @submit.prevent="onSubmit">
+      <form v-if="!sent" class="auth-form" @submit.prevent="onSubmit">
+        <p class="auth-help">
+          Entrez l'email associé à votre compte. Si un compte existe, un lien de réinitialisation
+          vous sera envoyé.
+        </p>
         <label class="field">
-          <span class="field-label">Nom d'utilisateur</span>
-          <input v-model="username" type="text" class="input" autocomplete="username" required />
-        </label>
-        <label class="field">
-          <span class="field-label">Mot de passe</span>
-          <input
-            v-model="password"
-            type="password"
-            class="input"
-            autocomplete="current-password"
-            required
-          />
+          <span class="field-label">Email</span>
+          <input v-model="email" type="email" class="input" autocomplete="email" required />
         </label>
 
         <div v-if="error" class="error">{{ error }}</div>
 
         <button class="btn btn-primary" type="submit" :disabled="submitting">
-          {{ submitting ? 'Connexion...' : 'Se connecter' }}
+          {{ submitting ? 'Envoi...' : 'Envoyer le lien' }}
         </button>
       </form>
 
+      <div v-else class="success-box">
+        <p>
+          Si un compte est associé à <strong>{{ email }}</strong
+          >, un email de réinitialisation a été envoyé. Vérifiez votre boîte de réception.
+        </p>
+      </div>
+
       <p class="auth-footer">
-        Pas de compte ?
-        <RouterLink to="/register" class="link">S'inscrire</RouterLink>
-      </p>
-      <p class="auth-footer">
-        <RouterLink to="/forgot-password" class="link">Mot de passe oublié ?</RouterLink>
-      </p>
-      <p class="auth-footer">
-        <RouterLink to="/quizzes" class="link">Continuer sans compte</RouterLink>
+        <RouterLink to="/login" class="link">Retour à la connexion</RouterLink>
       </p>
     </div>
   </div>
@@ -112,6 +113,12 @@ async function onSubmit() {
   gap: 0.85rem;
 }
 
+.auth-help {
+  font-size: 0.9rem;
+  color: var(--color-text-light);
+  line-height: 1.4;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -146,6 +153,17 @@ async function onSubmit() {
   padding: 0.5rem 0.75rem;
   font-size: 0.85rem;
   font-weight: 600;
+}
+
+.success-box {
+  background: #e8f8f0;
+  color: var(--color-green);
+  border: 2px solid var(--color-green);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
 .btn {

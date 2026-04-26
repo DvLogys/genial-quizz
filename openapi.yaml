@@ -39,10 +39,10 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AuthCredentials'
+              $ref: '#/components/schemas/RegisterCredentials'
             examples:
               simple:
-                value: { username: julien, password: s3cret-pass }
+                value: { username: julien, email: julien@example.com, password: s3cret-pass }
       responses:
         '201':
           description: User created and logged in
@@ -53,7 +53,53 @@ paths:
         '400':
           $ref: '#/components/responses/ValidationError'
         '409':
-          description: Username already taken
+          description: Username or email already taken
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/forgot-password:
+    post:
+      tags: [auth]
+      summary: Request a password reset email
+      description: |
+        Sends a password reset email containing a single-use token to the address
+        associated with the account, **if** one exists. The endpoint must always
+        respond `204` regardless of whether the email is registered, to prevent
+        email enumeration.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '204':
+          description: Reset email dispatched (or silently dropped if unknown)
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/reset-password:
+    post:
+      tags: [auth]
+      summary: Reset the password using a token
+      description: |
+        Consumes a token previously emitted by `/auth/forgot-password` and sets the
+        new password. Tokens are single-use and time-limited (recommended: 1 hour).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '204':
+          description: Password updated
+        '400':
+          description: Token invalid, expired, or password fails validation
           content:
             application/json:
               schema:
@@ -300,6 +346,49 @@ components:
           maxLength: 200
           format: password
 
+    RegisterCredentials:
+      type: object
+      required: [username, email, password]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          pattern: '^[a-zA-Z0-9_-]+$'
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 8
+          maxLength: 200
+          format: password
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          description: Single-use reset token sent by email
+          minLength: 1
+          maxLength: 512
+        password:
+          type: string
+          minLength: 8
+          maxLength: 200
+          format: password
+
     AuthResponse:
       type: object
       required: [token, user]
@@ -312,13 +401,16 @@ components:
 
     User:
       type: object
-      required: [id, username, createdAt]
+      required: [id, username, email, createdAt]
       properties:
         id:
           type: string
           format: uuid
         username:
           type: string
+        email:
+          type: string
+          format: email
         createdAt:
           type: string
           format: date-time
@@ -390,6 +482,19 @@ components:
                 type: array
                 items:
                   $ref: '#/components/schemas/Question'
+            players:
+              type: array
+              nullable: true
+              description: |
+                Saved player names — only persisted for **private** quizzes
+                (`isPublic = false`). For public quizzes the API must always
+                return either `null` or omit the field, even if the client sent
+                it.
+              items:
+                type: string
+                minLength: 1
+                maxLength: 60
+              maxItems: 6
 
     QuizInput:
       type: object
@@ -422,6 +527,18 @@ components:
             type: array
             items:
               $ref: '#/components/schemas/Question'
+        players:
+          type: array
+          nullable: true
+          description: |
+            Player roster to persist with the quiz. **Only stored when
+            `isPublic = false`** — if the client sends `players` together with
+            `isPublic = true`, the backend must drop the field (do not 400).
+          items:
+            type: string
+            minLength: 1
+            maxLength: 60
+          maxItems: 6
 
     Question:
       oneOf:
@@ -453,6 +570,15 @@ components:
             Optional illustration. Accepts either an external URL (`https://...`)
             or an inline `data:image/...;base64,...` URL for user-uploaded files.
           maxLength: 2000000
+        audioUrl:
+          type: string
+          nullable: true
+          description: |
+            Optional MP3/audio. Accepts either an external URL (`https://...`,
+            typically pointing at an `.mp3`) or an inline
+            `data:audio/...;base64,...` URL for user-uploaded files. Only valid
+            on `direct` questions.
+          maxLength: 5000000
 
     GuessTheMostQuestion:
       type: object

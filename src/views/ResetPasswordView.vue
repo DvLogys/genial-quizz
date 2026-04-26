@@ -1,28 +1,44 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter, useRoute, RouterLink } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { ref, computed } from 'vue'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
+import * as authApi from '@/api/auth'
 import { ApiError } from '@/api/client'
 
-const router = useRouter()
 const route = useRoute()
-const authStore = useAuthStore()
+const router = useRouter()
 
-const username = ref('')
+const token = computed(() => {
+  const raw = route.query.token
+  return typeof raw === 'string' ? raw : ''
+})
+
 const password = ref('')
+const confirm = ref('')
 const error = ref<string | null>(null)
 const submitting = ref(false)
+const success = ref(false)
 
 async function onSubmit() {
-  if (!username.value.trim() || !password.value) return
   error.value = null
+  if (!token.value) {
+    error.value = 'Lien invalide ou expiré.'
+    return
+  }
+  if (password.value.length < 8) {
+    error.value = 'Le mot de passe doit faire au moins 8 caractères'
+    return
+  }
+  if (password.value !== confirm.value) {
+    error.value = 'Les mots de passe ne correspondent pas'
+    return
+  }
   submitting.value = true
   try {
-    await authStore.login(username.value.trim(), password.value)
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/quizzes'
-    router.replace(redirect)
+    await authApi.resetPassword(token.value, password.value)
+    success.value = true
+    setTimeout(() => router.replace('/login'), 2000)
   } catch (e) {
-    error.value = e instanceof ApiError ? e.message : 'Erreur de connexion'
+    error.value = e instanceof ApiError ? e.message : 'Erreur de réinitialisation'
   } finally {
     submitting.value = false
   }
@@ -33,20 +49,31 @@ async function onSubmit() {
   <div class="auth-page">
     <div class="auth-card">
       <h1 class="auth-title">GENIAL QUIZZ</h1>
-      <p class="auth-subtitle">Connexion</p>
+      <p class="auth-subtitle">Réinitialiser le mot de passe</p>
 
-      <form class="auth-form" @submit.prevent="onSubmit">
+      <div v-if="!token" class="error">
+        Lien invalide. Veuillez recommencer la procédure de réinitialisation.
+      </div>
+
+      <form v-else-if="!success" class="auth-form" @submit.prevent="onSubmit">
         <label class="field">
-          <span class="field-label">Nom d'utilisateur</span>
-          <input v-model="username" type="text" class="input" autocomplete="username" required />
-        </label>
-        <label class="field">
-          <span class="field-label">Mot de passe</span>
+          <span class="field-label">Nouveau mot de passe (8+ caractères)</span>
           <input
             v-model="password"
             type="password"
             class="input"
-            autocomplete="current-password"
+            autocomplete="new-password"
+            minlength="8"
+            required
+          />
+        </label>
+        <label class="field">
+          <span class="field-label">Confirmer le mot de passe</span>
+          <input
+            v-model="confirm"
+            type="password"
+            class="input"
+            autocomplete="new-password"
             required
           />
         </label>
@@ -54,19 +81,16 @@ async function onSubmit() {
         <div v-if="error" class="error">{{ error }}</div>
 
         <button class="btn btn-primary" type="submit" :disabled="submitting">
-          {{ submitting ? 'Connexion...' : 'Se connecter' }}
+          {{ submitting ? 'Réinitialisation...' : 'Réinitialiser' }}
         </button>
       </form>
 
+      <div v-else class="success-box">
+        Mot de passe mis à jour. Redirection vers la connexion...
+      </div>
+
       <p class="auth-footer">
-        Pas de compte ?
-        <RouterLink to="/register" class="link">S'inscrire</RouterLink>
-      </p>
-      <p class="auth-footer">
-        <RouterLink to="/forgot-password" class="link">Mot de passe oublié ?</RouterLink>
-      </p>
-      <p class="auth-footer">
-        <RouterLink to="/quizzes" class="link">Continuer sans compte</RouterLink>
+        <RouterLink to="/login" class="link">Retour à la connexion</RouterLink>
       </p>
     </div>
   </div>
@@ -145,6 +169,16 @@ async function onSubmit() {
   border-radius: var(--radius-sm);
   padding: 0.5rem 0.75rem;
   font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.success-box {
+  background: #e8f8f0;
+  color: var(--color-green);
+  border: 2px solid var(--color-green);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.9rem;
+  font-size: 0.9rem;
   font-weight: 600;
 }
 

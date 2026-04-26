@@ -8,16 +8,24 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const username = ref('')
+const email = ref('')
 const password = ref('')
 const confirm = ref('')
 const error = ref<string | null>(null)
 const submitting = ref(false)
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 async function onSubmit() {
   error.value = null
   const name = username.value.trim()
+  const mail = email.value.trim()
   if (name.length < 3) {
     error.value = "Le nom d'utilisateur doit faire au moins 3 caractères"
+    return
+  }
+  if (!EMAIL_RE.test(mail)) {
+    error.value = 'Email invalide'
     return
   }
   if (password.value.length < 8) {
@@ -30,7 +38,7 @@ async function onSubmit() {
   }
   submitting.value = true
   try {
-    await authStore.register(name, password.value)
+    await authStore.register(name, mail, password.value)
     router.replace('/quizzes')
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : "Erreur d'inscription"
@@ -55,6 +63,16 @@ async function onSubmit() {
             class="input"
             autocomplete="username"
             minlength="3"
+            required
+          />
+        </label>
+        <label class="field">
+          <span class="field-label">Email</span>
+          <input
+            v-model="email"
+            type="email"
+            class="input"
+            autocomplete="email"
             required
           />
         </label>

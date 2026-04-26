@@ -89,3 +89,5 @@ The complete API is described in `openapi.yaml` (OpenAPI 3.1). Highlights:
 - `POST /quizzes`, `PUT /quizzes/{id}`, `DELETE /quizzes/{id}` — owner-only.
 
 When changing the API shape, update both `openapi.yaml` and the TypeScript types in `src/types.ts` together.
+
+claude --resume 7551773e-b46b-4c20-8332-07a0dc7e3afd

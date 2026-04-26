@@ -102,6 +102,14 @@ function finishGuess() {
           <img :src="cell.question.imageUrl" alt="Question image" />
         </div>
 
+        <!-- Audio (direct only) -->
+        <div
+          v-if="cell.question.type === 'direct' && cell.question.audioUrl"
+          class="modal-audio"
+        >
+          <audio :src="cell.question.audioUrl" controls preload="auto"></audio>
+        </div>
+
         <!-- DIRECT TYPE -->
         <template v-if="cell.question.type === 'direct'">
           <!-- Answer reveal -->
@@ -305,6 +313,16 @@ function finishGuess() {
   border: 2px solid var(--color-border);
   object-fit: contain;
   box-shadow: var(--shadow-warm);
+}
+
+.modal-audio {
+  text-align: center;
+  padding: 0 1.5rem 1rem;
+}
+
+.modal-audio audio {
+  width: 100%;
+  max-width: 480px;
 }
 
 .answer-section {

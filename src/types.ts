@@ -10,6 +10,7 @@ export interface DirectQuestion {
   text: string
   answer: string
   imageUrl?: string
+  audioUrl?: string
 }
 
 export interface GuessWord {
@@ -46,6 +47,7 @@ export type PointTier = (typeof POINT_TIERS)[number]
 export interface User {
   id: string
   username: string
+  email: string
   createdAt: string
 }
 
@@ -70,6 +72,7 @@ export interface QuizDetail extends QuizSummary {
   categories: string[]
   pointTiers: number[]
   questions: Question[][]
+  players?: string[]
 }
 
 export interface QuizInput {
@@ -78,4 +81,5 @@ export interface QuizInput {
   categories: string[]
   pointTiers: number[]
   questions: Question[][]
+  players?: string[]
 }

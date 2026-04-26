@@ -73,7 +73,13 @@ function buildQuestionsFromConfig(config: QuizConfig): Question[][] {
           imageUrl: q.imageUrl,
         }
       }
-      return { type: 'direct' as const, text: q.text, answer: q.answer, imageUrl: q.imageUrl }
+      return {
+        type: 'direct' as const,
+        text: q.text,
+        answer: q.answer,
+        imageUrl: q.imageUrl,
+        audioUrl: q.audioUrl,
+      }
     }),
   )
 }
@@ -93,6 +99,9 @@ function applyDetail(detail: QuizDetail) {
   })
   questions.splice(0, questions.length, ...built)
   activeCategoryTab.value = 0
+  if (!detail.isPublic && detail.players && detail.players.length >= 2) {
+    playerNames.value = [...detail.players]
+  }
 }
 
 function applyDefault() {
@@ -136,6 +145,7 @@ function setQuestionType(catIdx: number, tierIdx: number, type: 'direct' | 'gues
       text: existing.text,
       answer: '',
       imageUrl: existing.imageUrl,
+      audioUrl: existing.type === 'direct' ? existing.audioUrl : undefined,
     }
   } else {
     questions[catIdx]![tierIdx] = {
@@ -173,9 +183,28 @@ function removeImage(catIdx: number, tierIdx: number) {
   questions[catIdx]![tierIdx]!.imageUrl = undefined
 }
 
+function handleAudioFile(catIdx: number, tierIdx: number, event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  const cell = questions[catIdx]![tierIdx]!
+  if (cell.type !== 'direct') return
+  const reader = new FileReader()
+  reader.onload = () => {
+    cell.audioUrl = reader.result as string
+  }
+  reader.readAsDataURL(file)
+  input.value = ''
+}
+
+function removeAudio(catIdx: number, tierIdx: number) {
+  const cell = questions[catIdx]![tierIdx]!
+  if (cell.type === 'direct') cell.audioUrl = undefined
+}
+
 // Serialize current state to QuizInput (for save) or QuizConfig (for export)
 function buildInput(): QuizInput {
-  return {
+  const input: QuizInput = {
     name: quizName.value.trim() || 'Sans titre',
     isPublic: isPublic.value,
     categories: categoryNames.value.map((n) => n.trim()),
@@ -190,10 +219,20 @@ function buildInput(): QuizInput {
             imageUrl: q.imageUrl,
           }
         }
-        return { type: 'direct' as const, text: q.text, answer: q.answer, imageUrl: q.imageUrl }
+        return {
+          type: 'direct' as const,
+          text: q.text,
+          answer: q.answer,
+          imageUrl: q.imageUrl,
+          audioUrl: q.audioUrl,
+        }
       }),
     ),
   }
+  if (!isPublic.value) {
+    input.players = playerNames.value.map((n) => n.trim()).filter((n) => n.length > 0)
+  }
+  return input
 }
 
 async function saveQuiz() {
@@ -234,7 +273,13 @@ function exportQuiz() {
             imageUrl: q.imageUrl,
           }
         }
-        return { type: 'direct' as const, text: q.text, answer: q.answer, imageUrl: q.imageUrl }
+        return {
+          type: 'direct' as const,
+          text: q.text,
+          answer: q.answer,
+          imageUrl: q.imageUrl,
+          audioUrl: q.audioUrl,
+        }
       }),
     ),
   }
@@ -556,6 +601,57 @@ function startGame() {
             </div>
             <div v-if="questions[activeCategoryTab]![tierIdx]!.imageUrl" class="image-preview">
               <img :src="questions[activeCategoryTab]![tierIdx]!.imageUrl" alt="Preview" />
+            </div>
+          </div>
+
+          <div
+            v-if="questions[activeCategoryTab]![tierIdx]!.type === 'direct'"
+            class="audio-section"
+          >
+            <div class="image-label">Audio MP3 (optionnel)</div>
+            <div v-if="canEdit" class="image-controls">
+              <input
+                :value="
+                  (questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioUrl?.startsWith(
+                    'data:',
+                  )
+                    ? ''
+                    : ((questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioUrl ?? '')
+                "
+                type="text"
+                placeholder="Lien vers un fichier MP3..."
+                class="input image-url-input"
+                @input="
+                  (questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioUrl =
+                    ($event.target as HTMLInputElement).value || undefined
+                "
+              />
+              <label class="btn btn-small btn-secondary btn-upload">
+                Fichier
+                <input
+                  type="file"
+                  accept="audio/mpeg,audio/mp3,audio/*"
+                  class="hidden-input"
+                  @change="handleAudioFile(activeCategoryTab, tierIdx, $event)"
+                />
+              </label>
+              <button
+                v-if="(questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioUrl"
+                class="btn-icon btn-remove-small"
+                @click="removeAudio(activeCategoryTab, tierIdx)"
+              >
+                &times;
+              </button>
+            </div>
+            <div
+              v-if="(questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioUrl"
+              class="audio-preview"
+            >
+              <audio
+                :src="(questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioUrl"
+                controls
+                preload="none"
+              ></audio>
             </div>
           </div>
         </div>
@@ -1012,6 +1108,21 @@ function startGame() {
   border-radius: var(--radius-sm);
   border: 2px solid var(--color-border);
   object-fit: cover;
+}
+
+.audio-section {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.audio-preview {
+  margin-top: 0.5rem;
+}
+
+.audio-preview audio {
+  width: 100%;
+  max-width: 320px;
 }
 
 .btn {
