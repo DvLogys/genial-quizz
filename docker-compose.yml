@@ -10,5 +10,5 @@ services:
     image: genial-quizz-frontend:latest
     container_name: genial-quizz-frontend
     ports:
-      - "${FRONTEND_PORT:-8080}:80"
+      - "${FRONTEND_PORT:-8756}:80"
     restart: unless-stopped
