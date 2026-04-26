@@ -46,7 +46,7 @@ const canEdit = computed(() => {
 })
 
 // Players
-const playerNames = ref<string[]>(['Julien', 'Andrija', 'Cédric'])
+const playerNames = ref<string[]>([])
 
 function addPlayerSlot() {
   if (playerNames.value.length < 6) playerNames.value.push('')
