@@ -24,6 +24,8 @@ async function onSubmit() {
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) {
       error.value = "Le nom d'utilisateur n'existe pas."
+    } else if (e instanceof ApiError && e.status === 401) {
+      error.value = "Le nom d'utilisateur ou le mot de passe est incorrect."
     } else {
       error.value = e instanceof ApiError ? e.message : 'Erreur de connexion'
     }
