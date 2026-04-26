@@ -22,7 +22,11 @@ async function onSubmit() {
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/quizzes'
     router.replace(redirect)
   } catch (e) {
-    error.value = e instanceof ApiError ? e.message : 'Erreur de connexion'
+    if (e instanceof ApiError && e.status === 404) {
+      error.value = "Le nom d'utilisateur n'existe pas."
+    } else {
+      error.value = e instanceof ApiError ? e.message : 'Erreur de connexion'
+    }
   } finally {
     submitting.value = false
   }
