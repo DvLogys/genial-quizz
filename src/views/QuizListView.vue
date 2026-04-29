@@ -25,10 +25,10 @@ async function load() {
   error.value = null
   try {
     const tasks: Promise<unknown>[] = [
-      quizzesApi.listPublic().then((qs) => (publicQuizzes.value = qs)),
+      quizzesApi.listPublic().then((page) => (publicQuizzes.value = page.items)),
     ]
     if (authStore.isAuthenticated) {
-      tasks.push(quizzesApi.listMine().then((qs) => (mine.value = qs)))
+      tasks.push(quizzesApi.listMine().then((page) => (mine.value = page.items)))
     } else {
       mine.value = []
     }
