@@ -15,7 +15,8 @@ import type {
   QuizInput,
 } from '@/types'
 import * as quizzesApi from '@/api/quizzes'
-import { ApiError } from '@/api/client'
+import * as mediaApi from '@/api/media'
+import { ApiError, resolveMediaUrl } from '@/api/client'
 
 const router = useRouter()
 const route = useRoute()
@@ -39,6 +40,10 @@ const saving = ref(false)
 const loadError = ref<string | null>(null)
 const saveMessage = ref<string | null>(null)
 const saveError = ref<string | null>(null)
+const uploadError = ref<string | null>(null)
+const uploadingKey = ref<string | null>(null)
+
+const showValidation = ref(false)
 
 const canEdit = computed(() => {
   if (isNewQuiz.value) return authStore.isAuthenticated
@@ -62,6 +67,10 @@ const categoryNames = ref<string[]>([...defaultQuiz.categories])
 const questions = reactive<Question[][]>(buildQuestionsFromConfig(defaultQuiz))
 const activeCategoryTab = ref(0)
 
+function makeBlankDirect(): DirectQuestion {
+  return { type: 'direct', text: '', answer: '', audioStartSeconds: 0 }
+}
+
 function buildQuestionsFromConfig(config: QuizConfig): Question[][] {
   return config.questions.map((cat) =>
     cat.map((q) => {
@@ -79,6 +88,7 @@ function buildQuestionsFromConfig(config: QuizConfig): Question[][] {
         answer: q.answer,
         imageUrl: q.imageUrl,
         audioUrl: q.audioUrl,
+        audioStartSeconds: q.audioStartSeconds ?? 0,
       }
     }),
   )
@@ -99,6 +109,7 @@ function applyDetail(detail: QuizDetail) {
   })
   questions.splice(0, questions.length, ...built)
   activeCategoryTab.value = 0
+  showValidation.value = false
   if (!detail.isPublic && detail.players && detail.players.length >= 2) {
     playerNames.value = [...detail.players]
   }
@@ -114,6 +125,10 @@ function applyDefault() {
   const built = buildQuestionsFromConfig(defaultQuiz)
   questions.splice(0, questions.length, ...built)
   activeCategoryTab.value = 0
+  showValidation.value = false
+  if (playerNames.value.length === 0) {
+    playerNames.value = ['', '']
+  }
 }
 
 async function loadQuiz() {
@@ -137,6 +152,40 @@ async function loadQuiz() {
 onMounted(loadQuiz)
 watch(routeId, loadQuiz)
 
+// Categories & tiers (extensible)
+function addCategory() {
+  if (!canEdit.value) return
+  categoryNames.value.push(`Categorie ${categoryNames.value.length + 1}`)
+  questions.push(pointTiers.value.map(() => makeBlankDirect()))
+  activeCategoryTab.value = categoryNames.value.length - 1
+}
+
+function removeCategory(index: number) {
+  if (!canEdit.value || categoryNames.value.length <= 1) return
+  categoryNames.value.splice(index, 1)
+  questions.splice(index, 1)
+  if (activeCategoryTab.value >= categoryNames.value.length) {
+    activeCategoryTab.value = Math.max(0, categoryNames.value.length - 1)
+  }
+}
+
+function addTier() {
+  if (!canEdit.value) return
+  const previous = pointTiers.value[pointTiers.value.length - 1] ?? 0
+  pointTiers.value.push(previous + 100)
+  for (const cat of questions) {
+    cat.push(makeBlankDirect())
+  }
+}
+
+function removeTier(index: number) {
+  if (!canEdit.value || pointTiers.value.length <= 1) return
+  pointTiers.value.splice(index, 1)
+  for (const cat of questions) {
+    cat.splice(index, 1)
+  }
+}
+
 function setQuestionType(catIdx: number, tierIdx: number, type: 'direct' | 'guess_the_most') {
   const existing = questions[catIdx]![tierIdx]!
   if (type === 'direct') {
@@ -146,6 +195,7 @@ function setQuestionType(catIdx: number, tierIdx: number, type: 'direct' | 'gues
       answer: '',
       imageUrl: existing.imageUrl,
       audioUrl: existing.type === 'direct' ? existing.audioUrl : undefined,
+      audioStartSeconds: existing.type === 'direct' ? (existing.audioStartSeconds ?? 0) : 0,
     }
   } else {
     questions[catIdx]![tierIdx] = {
@@ -167,42 +217,106 @@ function removeWord(catIdx: number, tierIdx: number, wordIdx: number) {
   if (q.words.length > 1) q.words.splice(wordIdx, 1)
 }
 
-function handleImageFile(catIdx: number, tierIdx: number, event: Event) {
+function uploadKey(catIdx: number, tierIdx: number, kind: 'image' | 'audio') {
+  return `${kind}-${catIdx}-${tierIdx}`
+}
+
+async function handleImageFile(catIdx: number, tierIdx: number, event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) return
-  const reader = new FileReader()
-  reader.onload = () => {
-    questions[catIdx]![tierIdx]!.imageUrl = reader.result as string
-  }
-  reader.readAsDataURL(file)
   input.value = ''
+  if (!file) return
+  uploadError.value = null
+  const key = uploadKey(catIdx, tierIdx, 'image')
+  uploadingKey.value = key
+  try {
+    const result = await mediaApi.upload(file, 'IMAGE')
+    questions[catIdx]![tierIdx]!.imageUrl = result.url
+  } catch (e) {
+    uploadError.value = errorMessage(e, "Erreur d'upload de l'image")
+  } finally {
+    if (uploadingKey.value === key) uploadingKey.value = null
+  }
 }
 
 function removeImage(catIdx: number, tierIdx: number) {
   questions[catIdx]![tierIdx]!.imageUrl = undefined
 }
 
-function handleAudioFile(catIdx: number, tierIdx: number, event: Event) {
+async function handleAudioFile(catIdx: number, tierIdx: number, event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
+  input.value = ''
   if (!file) return
   const cell = questions[catIdx]![tierIdx]!
   if (cell.type !== 'direct') return
-  const reader = new FileReader()
-  reader.onload = () => {
-    cell.audioUrl = reader.result as string
+  uploadError.value = null
+  const key = uploadKey(catIdx, tierIdx, 'audio')
+  uploadingKey.value = key
+  try {
+    const result = await mediaApi.upload(file, 'AUDIO')
+    cell.audioUrl = result.url
+  } catch (e) {
+    uploadError.value = errorMessage(e, "Erreur d'upload de l'audio")
+  } finally {
+    if (uploadingKey.value === key) uploadingKey.value = null
   }
-  reader.readAsDataURL(file)
-  input.value = ''
 }
 
 function removeAudio(catIdx: number, tierIdx: number) {
   const cell = questions[catIdx]![tierIdx]!
-  if (cell.type === 'direct') cell.audioUrl = undefined
+  if (cell.type === 'direct') {
+    cell.audioUrl = undefined
+    cell.audioStartSeconds = 0
+  }
 }
 
-// Serialize current state to QuizInput (for save) or QuizConfig (for export)
+function errorMessage(e: unknown, fallback: string): string {
+  if (e instanceof Error) return e.message
+  return fallback
+}
+
+// Validation
+interface CellIssue {
+  catIdx: number
+  tierIdx: number
+  reasons: string[]
+}
+
+const cellIssues = computed<CellIssue[]>(() => {
+  const issues: CellIssue[] = []
+  questions.forEach((cat, catIdx) => {
+    cat.forEach((q, tierIdx) => {
+      const reasons: string[] = []
+      if (!q.text.trim()) reasons.push('question vide')
+      if (q.type === 'direct') {
+        if (!q.answer.trim()) reasons.push('réponse vide')
+      } else {
+        if (q.words.length === 0 || q.words.every((w) => !w.word.trim())) {
+          reasons.push('aucun mot renseigné')
+        }
+      }
+      if (reasons.length > 0) issues.push({ catIdx, tierIdx, reasons })
+    })
+  })
+  return issues
+})
+
+function categoryHasIssue(catIdx: number): boolean {
+  return cellIssues.value.some((i) => i.catIdx === catIdx)
+}
+
+function cellIssueFor(catIdx: number, tierIdx: number): CellIssue | undefined {
+  return cellIssues.value.find((i) => i.catIdx === catIdx && i.tierIdx === tierIdx)
+}
+
+function categoryNameMissing(catIdx: number): boolean {
+  return !categoryNames.value[catIdx]?.trim()
+}
+
+const totalIssueCount = computed(() => cellIssues.value.length)
+
+// Build payload
 function buildInput(): QuizInput {
   const input: QuizInput = {
     name: quizName.value.trim() || 'Sans titre',
@@ -225,6 +339,7 @@ function buildInput(): QuizInput {
           answer: q.answer,
           imageUrl: q.imageUrl,
           audioUrl: q.audioUrl,
+          audioStartSeconds: q.audioStartSeconds ?? 0,
         }
       }),
     ),
@@ -239,6 +354,13 @@ async function saveQuiz() {
   if (!canEdit.value) return
   saveMessage.value = null
   saveError.value = null
+  showValidation.value = true
+  if (totalIssueCount.value > 0) {
+    saveError.value = `Corrigez les ${totalIssueCount.value} case${
+      totalIssueCount.value > 1 ? 's' : ''
+    } en erreur avant de sauvegarder.`
+    return
+  }
   saving.value = true
   try {
     const input = buildInput()
@@ -257,7 +379,7 @@ async function saveQuiz() {
   }
 }
 
-// Export / Import (still useful for offline backup)
+// Export / Import
 function exportQuiz() {
   const config: QuizConfig = {
     name: quizName.value || 'Genial Quizz Export',
@@ -279,6 +401,7 @@ function exportQuiz() {
           answer: q.answer,
           imageUrl: q.imageUrl,
           audioUrl: q.audioUrl,
+          audioStartSeconds: q.audioStartSeconds ?? 0,
         }
       }),
     ),
@@ -317,6 +440,7 @@ function handleImport(event: Event) {
       const built = buildQuestionsFromConfig(config)
       questions.splice(0, questions.length, ...built)
       activeCategoryTab.value = 0
+      showValidation.value = false
     } catch {
       alert('Erreur lors de la lecture du fichier JSON.')
     }
@@ -394,16 +518,13 @@ function startGame() {
       </div>
 
       <div class="toolbar">
-        <button
-          v-if="canEdit"
-          class="btn btn-save"
-          :disabled="saving"
-          @click="saveQuiz"
-        >
+        <button v-if="canEdit" class="btn btn-save" :disabled="saving" @click="saveQuiz">
           {{ saving ? 'Sauvegarde...' : quizId ? 'Sauvegarder' : 'Créer le quiz' }}
         </button>
         <button class="btn btn-toolbar" @click="exportQuiz">Exporter JSON</button>
-        <button v-if="canEdit" class="btn btn-toolbar" @click="triggerImport">Importer JSON</button>
+        <button v-if="canEdit" class="btn btn-toolbar" @click="triggerImport">
+          Importer JSON
+        </button>
         <input
           ref="importInput"
           type="file"
@@ -415,6 +536,11 @@ function startGame() {
 
       <div v-if="saveMessage" class="banner banner-success">{{ saveMessage }}</div>
       <div v-if="saveError" class="banner banner-error">{{ saveError }}</div>
+      <div v-if="uploadError" class="banner banner-error">{{ uploadError }}</div>
+      <div v-if="showValidation && totalIssueCount > 0" class="banner banner-warning">
+        {{ totalIssueCount }} case{{ totalIssueCount > 1 ? 's' : '' }} en erreur — voir
+        signalisation rouge dans les onglets.
+      </div>
       <div v-if="isNewQuiz && !authStore.isAuthenticated" class="banner">
         Connectez-vous pour sauvegarder ce quiz sur le serveur.
       </div>
@@ -450,7 +576,12 @@ function startGame() {
     <section class="setup-section">
       <h2>Categories</h2>
       <div class="categories-grid">
-        <div v-for="(_, index) in categoryNames" :key="index" class="category-input-row">
+        <div
+          v-for="(_, index) in categoryNames"
+          :key="index"
+          class="category-input-row"
+          :class="{ 'row-error': showValidation && categoryNameMissing(index) }"
+        >
           <span class="category-number">{{ index + 1 }}</span>
           <input
             v-model="categoryNames[index]"
@@ -459,8 +590,46 @@ function startGame() {
             class="input"
             :disabled="!canEdit"
           />
+          <button
+            v-if="canEdit && categoryNames.length > 1"
+            class="btn-icon btn-remove"
+            @click="removeCategory(index)"
+          >
+            &times;
+          </button>
         </div>
       </div>
+      <button v-if="canEdit" class="btn btn-secondary" @click="addCategory">
+        + Ajouter une catégorie
+      </button>
+    </section>
+
+    <!-- Point tiers -->
+    <section class="setup-section">
+      <h2>Valeurs de points</h2>
+      <div class="tiers-grid">
+        <div v-for="(_, index) in pointTiers" :key="index" class="tier-row">
+          <span class="tier-number">{{ index + 1 }}</span>
+          <input
+            v-model.number="pointTiers[index]"
+            type="number"
+            min="0"
+            step="50"
+            class="input tier-input"
+            :disabled="!canEdit"
+          />
+          <button
+            v-if="canEdit && pointTiers.length > 1"
+            class="btn-icon btn-remove"
+            @click="removeTier(index)"
+          >
+            &times;
+          </button>
+        </div>
+      </div>
+      <button v-if="canEdit" class="btn btn-secondary" @click="addTier">
+        + Ajouter une valeur
+      </button>
     </section>
 
     <!-- Questions -->
@@ -471,15 +640,31 @@ function startGame() {
           v-for="(cat, idx) in categoryNames"
           :key="idx"
           class="tab"
-          :class="{ active: activeCategoryTab === idx }"
+          :class="{
+            active: activeCategoryTab === idx,
+            'tab-error':
+              showValidation && (categoryHasIssue(idx) || categoryNameMissing(idx)),
+          }"
           @click="activeCategoryTab = idx"
         >
           {{ cat || `Cat ${idx + 1}` }}
+          <span
+            v-if="showValidation && (categoryHasIssue(idx) || categoryNameMissing(idx))"
+            class="tab-error-dot"
+            aria-label="contient des erreurs"
+          ></span>
         </button>
       </div>
 
       <div class="questions-list">
-        <div v-for="(_tier, tierIdx) in pointTiers" :key="tierIdx" class="question-card">
+        <div
+          v-for="(_tier, tierIdx) in pointTiers"
+          :key="tierIdx"
+          class="question-card"
+          :class="{
+            'card-error': showValidation && cellIssueFor(activeCategoryTab, tierIdx),
+          }"
+        >
           <div class="question-header">
             <div class="points-badge-edit">
               <input
@@ -514,6 +699,10 @@ function startGame() {
             type="text"
             placeholder="Question..."
             class="input input-full"
+            :class="{
+              'input-error':
+                showValidation && !questions[activeCategoryTab]![tierIdx]!.text.trim(),
+            }"
             :disabled="!canEdit"
           />
 
@@ -523,6 +712,11 @@ function startGame() {
               type="text"
               placeholder="Reponse..."
               class="input input-full"
+              :class="{
+                'input-error':
+                  showValidation &&
+                  !(questions[activeCategoryTab]![tierIdx] as DirectQuestion).answer.trim(),
+              }"
               :disabled="!canEdit"
             />
           </template>
@@ -565,17 +759,20 @@ function startGame() {
             </div>
           </template>
 
+          <div
+            v-if="showValidation && cellIssueFor(activeCategoryTab, tierIdx)"
+            class="cell-issue"
+          >
+            ⚠ {{ cellIssueFor(activeCategoryTab, tierIdx)!.reasons.join(', ') }}
+          </div>
+
           <div class="image-section">
-            <div class="image-label">Image (optionnel)</div>
+            <div class="image-label">Image (optionnel, ≤ 5 Mo, recompressée)</div>
             <div v-if="canEdit" class="image-controls">
               <input
-                :value="
-                  questions[activeCategoryTab]![tierIdx]!.imageUrl?.startsWith('data:')
-                    ? ''
-                    : (questions[activeCategoryTab]![tierIdx]!.imageUrl ?? '')
-                "
+                :value="questions[activeCategoryTab]![tierIdx]!.imageUrl ?? ''"
                 type="text"
-                placeholder="URL de l'image..."
+                placeholder="URL externe ou /media/..."
                 class="input image-url-input"
                 @input="
                   questions[activeCategoryTab]![tierIdx]!.imageUrl =
@@ -583,7 +780,7 @@ function startGame() {
                 "
               />
               <label class="btn btn-small btn-secondary btn-upload">
-                Fichier
+                {{ uploadingKey === uploadKey(activeCategoryTab, tierIdx, 'image') ? '…' : 'Fichier' }}
                 <input
                   type="file"
                   accept="image/*"
@@ -600,7 +797,11 @@ function startGame() {
               </button>
             </div>
             <div v-if="questions[activeCategoryTab]![tierIdx]!.imageUrl" class="image-preview">
-              <img :src="questions[activeCategoryTab]![tierIdx]!.imageUrl" alt="Preview" />
+              <img
+                :src="resolveMediaUrl(questions[activeCategoryTab]![tierIdx]!.imageUrl)"
+                alt="Preview"
+                loading="lazy"
+              />
             </div>
           </div>
 
@@ -608,18 +809,12 @@ function startGame() {
             v-if="questions[activeCategoryTab]![tierIdx]!.type === 'direct'"
             class="audio-section"
           >
-            <div class="image-label">Audio MP3 (optionnel)</div>
+            <div class="image-label">Audio (optionnel, ≤ 5 Mo)</div>
             <div v-if="canEdit" class="image-controls">
               <input
-                :value="
-                  (questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioUrl?.startsWith(
-                    'data:',
-                  )
-                    ? ''
-                    : ((questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioUrl ?? '')
-                "
+                :value="(questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioUrl ?? ''"
                 type="text"
-                placeholder="Lien vers un fichier MP3..."
+                placeholder="URL externe ou /media/..."
                 class="input image-url-input"
                 @input="
                   (questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioUrl =
@@ -627,10 +822,10 @@ function startGame() {
                 "
               />
               <label class="btn btn-small btn-secondary btn-upload">
-                Fichier
+                {{ uploadingKey === uploadKey(activeCategoryTab, tierIdx, 'audio') ? '…' : 'Fichier' }}
                 <input
                   type="file"
-                  accept="audio/mpeg,audio/mp3,audio/*"
+                  accept="audio/*"
                   class="hidden-input"
                   @change="handleAudioFile(activeCategoryTab, tierIdx, $event)"
                 />
@@ -644,11 +839,32 @@ function startGame() {
               </button>
             </div>
             <div
+              v-if="
+                canEdit &&
+                (questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioUrl
+              "
+              class="audio-start-row"
+            >
+              <label class="audio-start-label" :for="`audio-start-${activeCategoryTab}-${tierIdx}`">
+                Démarrer à (sec)
+              </label>
+              <input
+                :id="`audio-start-${activeCategoryTab}-${tierIdx}`"
+                v-model.number="
+                  (questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioStartSeconds
+                "
+                type="number"
+                min="0"
+                step="1"
+                class="input audio-start-input"
+              />
+            </div>
+            <div
               v-if="(questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioUrl"
               class="audio-preview"
             >
               <audio
-                :src="(questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioUrl"
+                :src="resolveMediaUrl((questions[activeCategoryTab]![tierIdx] as DirectQuestion).audioUrl)"
                 controls
                 preload="none"
               ></audio>
@@ -739,6 +955,12 @@ function startGame() {
   background: #fde8ea;
   border-color: var(--color-red);
   color: var(--color-red);
+}
+
+.banner-warning {
+  background: #fff4d6;
+  border-color: #d99403;
+  color: #7a5300;
 }
 
 .toolbar {
@@ -865,7 +1087,7 @@ function startGame() {
   font-size: 0.95rem;
   background: var(--color-bg);
   color: var(--color-text);
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .input:focus {
@@ -875,6 +1097,12 @@ function startGame() {
 .input:disabled {
   background: #f4efd9;
   cursor: default;
+}
+
+.input-error {
+  border-color: var(--color-red) !important;
+  background: #fff1f2;
+  box-shadow: 0 0 0 2px rgba(231, 60, 78, 0.15);
 }
 
 .input-full {
@@ -890,7 +1118,8 @@ function startGame() {
 }
 
 .player-input-row,
-.category-input-row {
+.category-input-row,
+.tier-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -901,8 +1130,15 @@ function startGame() {
   flex: 1;
 }
 
+.row-error {
+  background: #fff1f2;
+  border-radius: var(--radius-sm);
+  padding: 0.25rem;
+}
+
 .player-number,
-.category-number {
+.category-number,
+.tier-number {
   width: 28px;
   height: 28px;
   background: var(--color-primary);
@@ -953,6 +1189,19 @@ function startGame() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.tiers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.tier-input {
+  flex: 1;
+  width: 100%;
 }
 
 .category-tabs {
@@ -971,6 +1220,7 @@ function startGame() {
   font-size: 0.85rem;
   transition: all 0.2s;
   border: 2px solid transparent;
+  position: relative;
 }
 
 .tab:hover {
@@ -981,6 +1231,31 @@ function startGame() {
   background: var(--color-primary);
   color: var(--color-navy);
   border-color: var(--color-amber);
+}
+
+.tab-error {
+  border-color: var(--color-red) !important;
+  background: #fde8ea;
+  color: var(--color-red);
+}
+
+.tab-error.active {
+  background: var(--color-red);
+  color: white;
+}
+
+.tab-error-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--color-red);
+  border-radius: 50%;
+  margin-left: 0.35rem;
+}
+
+.tab.active .tab-error-dot,
+.tab-error .tab-error-dot {
+  background: white;
 }
 
 .questions-list {
@@ -994,6 +1269,23 @@ function startGame() {
   border: 2px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 1rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.card-error {
+  border-color: var(--color-red);
+  box-shadow: 0 0 0 3px rgba(231, 60, 78, 0.18);
+  background: #fff7f8;
+}
+
+.cell-issue {
+  margin-top: 0.4rem;
+  background: #fde8ea;
+  color: var(--color-red);
+  border-radius: var(--radius-sm);
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 .question-header {
@@ -1114,6 +1406,23 @@ function startGame() {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--color-border);
+}
+
+.audio-start-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.audio-start-label {
+  color: var(--color-text-light);
+  font-weight: 600;
+}
+
+.audio-start-input {
+  width: 90px;
 }
 
 .audio-preview {

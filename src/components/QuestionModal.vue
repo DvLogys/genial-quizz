@@ -2,7 +2,8 @@
 import { ref, computed } from 'vue'
 import { usePlayerStore } from '@/stores/player'
 import { useGameStore } from '@/stores/game'
-import type { QuestionCell, GuessTheMostQuestion } from '@/types'
+import { resolveMediaUrl } from '@/api/client'
+import type { QuestionCell, GuessTheMostQuestion, DirectQuestion } from '@/types'
 
 const props = defineProps<{
   cell: QuestionCell
@@ -29,6 +30,26 @@ const guessQuestion = computed(() => {
 
 const revealedWords = ref<Set<number>>(new Set())
 const wordAssignments = ref<Record<number, string>>({})
+
+const audioRef = ref<HTMLAudioElement | null>(null)
+
+const audioSrc = computed(() => {
+  if (props.cell.question.type !== 'direct') return undefined
+  return resolveMediaUrl((props.cell.question as DirectQuestion).audioUrl)
+})
+
+const audioStart = computed(() => {
+  if (props.cell.question.type !== 'direct') return 0
+  return (props.cell.question as DirectQuestion).audioStartSeconds ?? 0
+})
+
+function onAudioMetadataLoaded() {
+  const el = audioRef.value
+  if (!el) return
+  if (audioStart.value > 0 && Number.isFinite(el.duration) && audioStart.value < el.duration) {
+    el.currentTime = audioStart.value
+  }
+}
 
 const pointPerWord = computed(() => {
   if (!guessQuestion.value) return 0
@@ -99,7 +120,7 @@ function finishGuess() {
 
         <!-- Question image -->
         <div v-if="cell.question.imageUrl" class="modal-image">
-          <img :src="cell.question.imageUrl" alt="Question image" />
+          <img :src="resolveMediaUrl(cell.question.imageUrl)" alt="Question image" />
         </div>
 
         <!-- Audio (direct only) -->
@@ -107,7 +128,13 @@ function finishGuess() {
           v-if="cell.question.type === 'direct' && cell.question.audioUrl"
           class="modal-audio"
         >
-          <audio :src="cell.question.audioUrl" controls preload="auto"></audio>
+          <audio
+            ref="audioRef"
+            :src="audioSrc"
+            controls
+            preload="auto"
+            @loadedmetadata="onAudioMetadataLoaded"
+          ></audio>
         </div>
 
         <!-- DIRECT TYPE -->

@@ -11,6 +11,7 @@ export interface DirectQuestion {
   answer: string
   imageUrl?: string
   audioUrl?: string
+  audioStartSeconds?: number
 }
 
 export interface GuessWord {
@@ -47,7 +48,7 @@ export type PointTier = (typeof POINT_TIERS)[number]
 export interface User {
   id: string
   username: string
-  email: string
+  email?: string
   createdAt: string
 }
 
@@ -82,4 +83,21 @@ export interface QuizInput {
   pointTiers: number[]
   questions: Question[][]
   players?: string[]
+}
+
+export interface Page<T> {
+  items: T[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export type MediaKind = 'IMAGE' | 'AUDIO'
+
+export interface MediaUploadResult {
+  id: string
+  url: string
+  kind: MediaKind
+  contentType: string
+  sizeBytes: number
 }
