@@ -1085,6 +1085,12 @@ function startGame() {
   padding: 1.5rem 2rem;
 }
 
+@media (max-width: 700px) {
+  .setup-page {
+    padding: 1rem 0.85rem 2rem;
+  }
+}
+
 .setup-header {
   text-align: center;
   margin-bottom: 1.5rem;
@@ -1098,11 +1104,21 @@ function startGame() {
 }
 
 .header-top h1 {
-  font-size: 2.5rem;
+  font-size: clamp(1.5rem, 5vw, 2.5rem);
   color: var(--color-navy);
   letter-spacing: 2px;
   text-shadow: 2px 2px 0 var(--color-primary);
   flex: 1;
+}
+
+@media (max-width: 480px) {
+  .header-top h1 {
+    letter-spacing: 1px;
+    text-shadow: 1px 1px 0 var(--color-primary);
+  }
+  .header-spacer {
+    display: none;
+  }
 }
 
 .header-spacer {
@@ -1324,6 +1340,12 @@ function startGame() {
   border: 2px solid var(--color-primary-dark);
 }
 
+@media (max-width: 600px) {
+  .setup-section {
+    padding: 1rem 0.85rem;
+  }
+}
+
 .setup-section h2 {
   font-size: 1.25rem;
   margin-bottom: 0.75rem;
@@ -1497,7 +1519,7 @@ function startGame() {
 
 .categories-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 0.5rem;
   margin-bottom: 0.75rem;
 }
@@ -1689,10 +1711,18 @@ function startGame() {
   display: flex;
   align-items: center;
   gap: 0.35rem;
+  flex-wrap: wrap;
 }
 
 .image-url-input {
   flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .image-url-input {
+    flex-basis: 100%;
+  }
 }
 
 .btn-upload {
@@ -1780,12 +1810,20 @@ function startGame() {
   background: linear-gradient(135deg, var(--color-primary), var(--color-amber));
   color: var(--color-navy);
   font-family: var(--font-display);
-  font-size: 1.5rem;
+  font-size: clamp(1.1rem, 4vw, 1.5rem);
   padding: 1rem 3rem;
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-gold-lg);
   transition: all 0.3s;
   letter-spacing: 1px;
+  max-width: 100%;
+}
+
+@media (max-width: 480px) {
+  .btn-start {
+    padding: 0.85rem 1.5rem;
+    width: 100%;
+  }
 }
 
 .btn-start:hover:not(:disabled) {

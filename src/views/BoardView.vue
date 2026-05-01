@@ -125,6 +125,15 @@ function backToSetup() {
   position: relative;
 }
 
+@media (max-width: 900px) {
+  .board-page {
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+}
+
 /* Hive pattern background on the grid area */
 .grid-area::before {
   content: '';
@@ -147,6 +156,15 @@ function backToSetup() {
   flex-direction: column;
   overflow-y: auto;
   z-index: 1;
+}
+
+@media (max-width: 900px) {
+  .sidebar-area {
+    width: 100%;
+    border-right: none;
+    border-bottom: 3px solid #c4d4ec;
+    max-height: none;
+  }
 }
 
 .sidebar-footer {
@@ -191,6 +209,13 @@ function backToSetup() {
   position: relative;
 }
 
+@media (max-width: 900px) {
+  .grid-area {
+    padding: 0.75rem 0.75rem 1.5rem;
+    overflow-y: visible;
+  }
+}
+
 .game-grid {
   display: grid;
   gap: 0.5rem;
@@ -228,6 +253,19 @@ function backToSetup() {
   min-height: 64px;
 }
 
+@media (max-width: 600px) {
+  .grid-header {
+    font-size: 0.7rem;
+    padding: 0.4rem 0.15rem;
+  }
+  .grid-cell {
+    min-height: 50px;
+  }
+  .cell-points {
+    font-size: 1rem;
+  }
+}
+
 .grid-cell:hover:not(.played) {
   transform: scale(1.06);
   box-shadow: var(--shadow-gold);
@@ -263,8 +301,10 @@ function backToSetup() {
 .branding-planet {
   position: relative;
   display: inline-block;
-  width: 420px;
-  height: 100px;
+  width: min(420px, 100%);
+  max-width: 420px;
+  aspect-ratio: 420 / 100;
+  height: auto;
 }
 
 .branding-core {
@@ -279,11 +319,20 @@ function backToSetup() {
 
 .branding-text {
   font-family: var(--font-display);
-  font-size: 3.2rem;
+  font-size: clamp(1.6rem, 7vw, 3.2rem);
   color: var(--color-navy);
   letter-spacing: 5px;
   text-shadow: 3px 3px 0 var(--color-primary);
   opacity: 0.65;
+}
+
+@media (max-width: 600px) {
+  .branding {
+    padding: 1rem 0 0.25rem;
+  }
+  .branding-text {
+    letter-spacing: 2px;
+  }
 }
 
 .branding-text.accent {

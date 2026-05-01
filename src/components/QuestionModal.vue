@@ -263,12 +263,20 @@ function finishGuess() {
   background: var(--color-white);
   border: 3px solid var(--color-primary-dark);
   border-radius: var(--radius-xl);
-  width: 90%;
-  max-width: 700px;
-  max-height: 85vh;
+  width: min(94%, 700px);
+  max-height: 92vh;
   overflow-y: auto;
   box-shadow: var(--shadow-gold-lg);
   animation: scale-in 0.25s ease;
+}
+
+@media (max-width: 480px) {
+  .modal {
+    width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+    border-width: 0;
+  }
 }
 
 @keyframes scale-in {
@@ -321,7 +329,7 @@ function finishGuess() {
 
 .modal-question {
   padding: 1.5rem;
-  font-size: 1.3rem;
+  font-size: clamp(1rem, 3.5vw, 1.3rem);
   font-weight: 600;
   color: var(--color-navy);
   text-align: center;
@@ -455,6 +463,12 @@ function finishGuess() {
   justify-content: center;
 }
 
+@media (max-width: 480px) {
+  .scoring-buttons .btn {
+    flex: 1 1 calc(50% - 0.5rem);
+  }
+}
+
 .btn-correct {
   background: var(--color-green);
   color: white;
@@ -504,7 +518,7 @@ function finishGuess() {
 
 .words-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 0.5rem;
   margin-bottom: 1rem;
 }

@@ -166,6 +166,12 @@ function formatDate(iso: string) {
   padding: 1.5rem 2rem 3rem;
 }
 
+@media (max-width: 700px) {
+  .list-page {
+    padding: 1rem 0.85rem 2rem;
+  }
+}
+
 .list-header {
   display: flex;
   align-items: center;
@@ -176,7 +182,7 @@ function formatDate(iso: string) {
 }
 
 .brand h1 {
-  font-size: 2.2rem;
+  font-size: clamp(1.4rem, 5vw, 2.2rem);
   color: var(--color-navy);
   letter-spacing: 2px;
   text-shadow: 2px 2px 0 var(--color-primary);
@@ -199,6 +205,15 @@ function formatDate(iso: string) {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 1.5rem;
+}
+
+@media (max-width: 480px) {
+  .actions {
+    justify-content: stretch;
+  }
+  .actions .btn-big {
+    width: 100%;
+  }
 }
 
 .btn {
@@ -316,7 +331,7 @@ function formatDate(iso: string) {
 
 .quiz-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
   gap: 1rem;
 }
 

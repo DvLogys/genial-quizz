@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { usePlayerStore } from '@/stores/player'
 
 const playerStore = usePlayerStore()
 
 const customAmounts = ref<Record<string, string>>({})
+
+const sortedPlayers = computed(() =>
+  [...playerStore.players].sort((a, b) => b.score - a.score),
+)
 
 function quickScore(playerId: string, amount: number) {
   playerStore.updateScore(playerId, amount)
@@ -22,15 +26,16 @@ function applyCustom(playerId: string) {
 <template>
   <aside class="sidebar">
     <h2 class="sidebar-title">Joueurs</h2>
-    <div class="player-list">
+    <TransitionGroup name="player" tag="div" class="player-list">
       <div
-        v-for="player in playerStore.players"
+        v-for="(player, idx) in sortedPlayers"
         :key="player.id"
         class="player-card"
-        :class="{ active: player.isActive }"
+        :class="{ active: player.isActive, leader: idx === 0 && player.score > 0 }"
         @click="playerStore.setActive(player.id)"
       >
         <div class="player-info">
+          <span class="player-rank">{{ idx + 1 }}</span>
           <span class="player-name">{{ player.name }}</span>
           <span class="player-score" :class="{ negative: player.score < 0 }">
             {{ player.score }}
@@ -51,7 +56,7 @@ function applyCustom(playerId: string) {
           <button class="ctrl-btn plus" @click="quickScore(player.id, 100)">+100</button>
         </div>
       </div>
-    </div>
+    </TransitionGroup>
   </aside>
 </template>
 
@@ -75,6 +80,7 @@ function applyCustom(playerId: string) {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  position: relative;
 }
 
 .player-card {
@@ -119,13 +125,39 @@ function applyCustom(playerId: string) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.4rem;
   margin-bottom: 0.4rem;
 }
 
+.player-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(26, 26, 46, 0.12);
+  color: var(--color-navy);
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+
+.player-card.leader .player-rank {
+  background: var(--color-amber);
+  color: var(--color-navy);
+  box-shadow: 0 0 0 2px rgba(255, 193, 7, 0.35);
+}
+
 .player-name {
+  flex: 1;
+  min-width: 0;
   font-weight: 700;
   font-size: 0.95rem;
   color: var(--color-navy);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .player-score {
@@ -206,5 +238,21 @@ function applyCustom(playerId: string) {
 }
 .custom-input[type='number'] {
   -moz-appearance: textfield;
+}
+
+.player-move,
+.player-enter-active,
+.player-leave-active {
+  transition: transform 0.4s ease, opacity 0.25s ease;
+}
+
+.player-enter-from,
+.player-leave-to {
+  opacity: 0;
+}
+
+.player-leave-active {
+  position: absolute;
+  width: calc(100% - 1.7rem);
 }
 </style>

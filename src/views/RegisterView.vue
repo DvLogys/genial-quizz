@@ -119,7 +119,7 @@ async function onSubmit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2rem;
+  padding: 2rem 1rem;
 }
 
 .auth-card {
@@ -127,13 +127,13 @@ async function onSubmit() {
   border: 3px solid var(--color-primary-dark);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-gold-lg);
-  padding: 2rem;
+  padding: clamp(1.2rem, 4vw, 2rem);
   width: 100%;
   max-width: 420px;
 }
 
 .auth-title {
-  font-size: 2.2rem;
+  font-size: clamp(1.4rem, 6vw, 2.2rem);
   color: var(--color-navy);
   letter-spacing: 2px;
   text-shadow: 2px 2px 0 var(--color-primary);
