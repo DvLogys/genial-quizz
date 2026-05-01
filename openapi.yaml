@@ -143,6 +143,18 @@ paths:
                 $ref: '#/components/schemas/User'
         '401':
           $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [auth]
+      summary: Delete the current account and all associated data
+      description: |
+        Permanently deletes the user, every quiz they own, every uploaded image
+        and audio file referenced by those quizzes, and any pending password-reset
+        tokens. This action is irreversible.
+      responses:
+        '204':
+          description: Account deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /quizzes:
     get:
@@ -257,7 +269,11 @@ paths:
           $ref: '#/components/responses/NotFound'
     delete:
       tags: [quizzes]
-      summary: Delete a quiz (owner only)
+      summary: Delete a quiz and its associated media (owner only)
+      description: |
+        Permanently removes the quiz and any uploaded images / audio referenced by
+        its questions. Externally hosted URLs are left untouched. This action is
+        irreversible.
       responses:
         '204':
           description: Quiz deleted

@@ -19,6 +19,10 @@ export function me() {
   return request<User>('/auth/me')
 }
 
+export function deleteAccount() {
+  return request<void>('/auth/me', { method: 'DELETE' })
+}
+
 export function requestPasswordReset(email: string) {
   return request<void>('/auth/forgot-password', {
     method: 'POST',

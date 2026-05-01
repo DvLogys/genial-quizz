@@ -14,6 +14,14 @@ const publicQuizzes = ref<QuizSummary[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 
+const quizToDelete = ref<QuizSummary | null>(null)
+const deletingQuiz = ref(false)
+
+const showAccountConfirm = ref(false)
+const accountConfirmText = ref('')
+const deletingAccount = ref(false)
+const accountDeleteError = ref<string | null>(null)
+
 const publicOthers = computed(() =>
   authStore.user
     ? publicQuizzes.value.filter((q) => q.ownerId !== authStore.user!.id)
@@ -50,13 +58,62 @@ function newQuiz() {
   router.push('/quizzes/new')
 }
 
-async function deleteQuiz(id: string) {
-  if (!confirm('Supprimer ce quiz ?')) return
+function askDeleteQuiz(q: QuizSummary) {
+  quizToDelete.value = q
+}
+
+function cancelDeleteQuiz() {
+  if (deletingQuiz.value) return
+  quizToDelete.value = null
+}
+
+async function confirmDeleteQuiz() {
+  if (!quizToDelete.value || deletingQuiz.value) return
+  deletingQuiz.value = true
+  const id = quizToDelete.value.id
   try {
     await quizzesApi.remove(id)
     mine.value = mine.value.filter((q) => q.id !== id)
+    quizToDelete.value = null
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : 'Erreur de suppression'
+  } finally {
+    deletingQuiz.value = false
+  }
+}
+
+function openAccountDeletion() {
+  showAccountConfirm.value = true
+  accountConfirmText.value = ''
+  accountDeleteError.value = null
+}
+
+function cancelAccountDeletion() {
+  if (deletingAccount.value) return
+  showAccountConfirm.value = false
+}
+
+const accountConfirmExpected = computed(() => authStore.user?.username ?? '')
+const accountConfirmReady = computed(
+  () =>
+    accountConfirmExpected.value.length > 0 &&
+    accountConfirmText.value.trim() === accountConfirmExpected.value,
+)
+
+async function confirmAccountDeletion() {
+  if (!accountConfirmReady.value || deletingAccount.value) return
+  deletingAccount.value = true
+  accountDeleteError.value = null
+  try {
+    await authStore.deleteAccount()
+    showAccountConfirm.value = false
+    mine.value = []
+    router.push('/login')
+  } catch (e) {
+    accountDeleteError.value =
+      e instanceof ApiError ? e.message : 'Erreur lors de la suppression du compte'
+  } finally {
+    deletingAccount.value = false
   }
 }
 
@@ -84,6 +141,13 @@ function formatDate(iso: string) {
         <template v-if="authStore.isAuthenticated">
           <span class="welcome">Bonjour, {{ authStore.user?.username }}</span>
           <button class="btn btn-ghost" @click="logout">Déconnexion</button>
+          <button
+            class="btn btn-ghost btn-danger-ghost"
+            type="button"
+            @click="openAccountDeletion"
+          >
+            Supprimer mon compte
+          </button>
         </template>
         <template v-else>
           <RouterLink to="/login" class="btn btn-ghost">Connexion</RouterLink>
@@ -128,7 +192,7 @@ function formatDate(iso: string) {
             </div>
             <div class="quiz-card-actions">
               <button class="btn btn-sm btn-edit" @click="editQuiz(q.id)">Éditer / Jouer</button>
-              <button class="btn btn-sm btn-danger" @click="deleteQuiz(q.id)">Supprimer</button>
+              <button class="btn btn-sm btn-danger" @click="askDeleteQuiz(q)">Supprimer</button>
             </div>
           </article>
         </div>
@@ -156,6 +220,85 @@ function formatDate(iso: string) {
         </div>
       </section>
     </template>
+
+    <Teleport to="body">
+      <div v-if="quizToDelete" class="modal-backdrop" @click.self="cancelDeleteQuiz">
+        <div class="modal-card" role="dialog" aria-modal="true">
+          <h3 class="modal-title">Supprimer ce quiz ?</h3>
+          <p class="modal-body">
+            Le quiz <strong>« {{ quizToDelete.name }} »</strong> sera supprimé définitivement,
+            ainsi que <strong>toutes les images et les sons</strong> qui lui sont associés et que
+            vous avez téléversés sur le serveur.
+          </p>
+          <p class="modal-warning">⚠ Cette action est irréversible.</p>
+          <div class="modal-actions">
+            <button
+              class="btn btn-ghost"
+              type="button"
+              :disabled="deletingQuiz"
+              @click="cancelDeleteQuiz"
+            >
+              Annuler
+            </button>
+            <button
+              class="btn btn-danger"
+              type="button"
+              :disabled="deletingQuiz"
+              @click="confirmDeleteQuiz"
+            >
+              {{ deletingQuiz ? 'Suppression…' : 'Supprimer définitivement' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="showAccountConfirm" class="modal-backdrop" @click.self="cancelAccountDeletion">
+        <div class="modal-card modal-card-danger" role="dialog" aria-modal="true">
+          <h3 class="modal-title">Supprimer définitivement votre compte ?</h3>
+          <p class="modal-body">
+            En continuant, vous supprimerez de manière <strong>définitive</strong> :
+          </p>
+          <ul class="modal-list">
+            <li>votre compte utilisateur et vos identifiants ;</li>
+            <li>tous vos quiz, qu'ils soient privés ou publics ;</li>
+            <li>toutes les images et tous les sons que vous avez téléversés ;</li>
+            <li>vos éventuels jetons de réinitialisation de mot de passe.</li>
+          </ul>
+          <p class="modal-warning">⚠ Cette action est irréversible.</p>
+          <label class="modal-confirm-field">
+            <span>Pour confirmer, saisissez votre nom d'utilisateur
+              <code>{{ accountConfirmExpected }}</code> :</span>
+            <input
+              v-model="accountConfirmText"
+              type="text"
+              class="modal-input"
+              :placeholder="accountConfirmExpected"
+              autocomplete="off"
+              @keyup.enter="confirmAccountDeletion"
+            />
+          </label>
+          <div v-if="accountDeleteError" class="modal-error">{{ accountDeleteError }}</div>
+          <div class="modal-actions">
+            <button
+              class="btn btn-ghost"
+              type="button"
+              :disabled="deletingAccount"
+              @click="cancelAccountDeletion"
+            >
+              Annuler
+            </button>
+            <button
+              class="btn btn-danger"
+              type="button"
+              :disabled="!accountConfirmReady || deletingAccount"
+              @click="confirmAccountDeletion"
+            >
+              {{ deletingAccount ? 'Suppression…' : 'Supprimer mon compte' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -243,6 +386,17 @@ function formatDate(iso: string) {
 
 .btn-primary:hover:not(:disabled) {
   box-shadow: var(--shadow-gold-lg);
+}
+
+.btn-danger-ghost {
+  background: transparent;
+  color: var(--color-red);
+  border-color: var(--color-red);
+}
+
+.btn-danger-ghost:hover {
+  background: var(--color-red);
+  color: white;
 }
 
 .btn-ghost {
@@ -404,5 +558,149 @@ function formatDate(iso: string) {
   display: flex;
   gap: 0.4rem;
   flex-wrap: wrap;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 26, 46, 0.45);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 2000;
+  animation: modal-fade-in 0.18s ease;
+}
+
+@keyframes modal-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-card {
+  background: var(--color-white);
+  border: 3px solid var(--color-primary-dark);
+  border-radius: var(--radius-xl);
+  padding: clamp(1.2rem, 3vw, 1.75rem);
+  width: 100%;
+  max-width: 480px;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  box-shadow: var(--shadow-gold-lg);
+  animation: modal-pop-in 0.22s ease;
+}
+
+.modal-card-danger {
+  border-color: var(--color-red);
+}
+
+@keyframes modal-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.modal-title {
+  font-size: 1.25rem;
+  color: var(--color-navy);
+  margin-bottom: 0.5rem;
+}
+
+.modal-body {
+  font-size: 0.95rem;
+  color: var(--color-text);
+  line-height: 1.5;
+  margin-bottom: 0.5rem;
+}
+
+.modal-list {
+  margin: 0 0 0.75rem 1.25rem;
+  font-size: 0.9rem;
+  color: var(--color-text);
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.modal-warning {
+  background: #fde8ea;
+  border: 2px solid var(--color-red);
+  color: var(--color-red);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.65rem;
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.modal-confirm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+
+.modal-confirm-field code {
+  background: var(--color-bg-dark);
+  padding: 0.05rem 0.35rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-weight: 700;
+}
+
+.modal-input {
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.95rem;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+
+.modal-input:focus {
+  outline: none;
+  border-color: var(--color-red);
+}
+
+.modal-error {
+  background: #fde8ea;
+  border: 2px solid var(--color-red);
+  color: var(--color-red);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.65rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 480px) {
+  .modal-actions {
+    flex-direction: column-reverse;
+  }
+  .modal-actions .btn {
+    width: 100%;
+  }
 }
 </style>

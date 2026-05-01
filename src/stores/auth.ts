@@ -43,6 +43,12 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
   }
 
+  async function deleteAccount() {
+    await authApi.deleteAccount()
+    setToken(null)
+    user.value = null
+  }
+
   return {
     user,
     initialized,
@@ -51,5 +57,6 @@ export const useAuthStore = defineStore('auth', () => {
     login,
     register,
     logout,
+    deleteAccount,
   }
 })
