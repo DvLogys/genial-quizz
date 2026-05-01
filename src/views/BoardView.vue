@@ -51,7 +51,10 @@ function backToSetup() {
 
     <!-- Main Grid -->
     <main class="grid-area">
-      <div class="game-grid">
+      <div
+        class="game-grid"
+        :style="{ gridTemplateColumns: `repeat(${Math.max(gameStore.categories.length, 1)}, 1fr)` }"
+      >
         <!-- Category headers -->
         <div
           v-for="(cat, catIdx) in gameStore.categories"
@@ -190,7 +193,6 @@ function backToSetup() {
 
 .game-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
   gap: 0.5rem;
   position: relative;
   z-index: 1;

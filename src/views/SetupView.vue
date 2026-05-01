@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute, RouterLink } from 'vue-router'
 import { usePlayerStore } from '@/stores/player'
 import { useGameStore } from '@/stores/game'
@@ -45,9 +45,48 @@ const uploadingKey = ref<string | null>(null)
 
 const showValidation = ref(false)
 
+type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error'
+const saveStatus = ref<SaveStatus>('idle')
+const lastSavedPayload = ref<string | null>(null)
+const AUTO_SAVE_DEBOUNCE_MS = 5000
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+let pendingChangesAfterSave = false
+
 const canEdit = computed(() => {
   if (isNewQuiz.value) return authStore.isAuthenticated
   return authStore.user !== null && ownerId.value === authStore.user.id
+})
+
+const saveStatusLabel = computed(() => {
+  switch (saveStatus.value) {
+    case 'saving':
+      return 'Sauvegarde en cours…'
+    case 'saved':
+      return 'Sauvegardé'
+    case 'dirty':
+      return 'Modifications non sauvegardées'
+    case 'error':
+      return 'Erreur de sauvegarde'
+    default:
+      return ''
+  }
+})
+
+watch(saveStatus, (status) => {
+  if (status !== 'saved') return
+  const captured = lastSavedPayload.value
+  setTimeout(() => {
+    if (saveStatus.value === 'saved' && lastSavedPayload.value === captured) {
+      saveStatus.value = 'idle'
+    }
+  }, 3000)
+})
+
+watch(saveMessage, (msg) => {
+  if (!msg) return
+  setTimeout(() => {
+    if (saveMessage.value === msg) saveMessage.value = null
+  }, 3000)
 })
 
 // Players
@@ -113,6 +152,7 @@ function applyDetail(detail: QuizDetail) {
   if (!detail.isPublic && detail.players && detail.players.length >= 2) {
     playerNames.value = [...detail.players]
   }
+  captureBaseline()
 }
 
 function applyDefault() {
@@ -128,6 +168,16 @@ function applyDefault() {
   showValidation.value = false
   if (playerNames.value.length === 0) {
     playerNames.value = ['', '']
+  }
+  captureBaseline()
+}
+
+function captureBaseline() {
+  lastSavedPayload.value = JSON.stringify(buildInput())
+  saveStatus.value = 'idle'
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
   }
 }
 
@@ -151,6 +201,33 @@ async function loadQuiz() {
 
 onMounted(loadQuiz)
 watch(routeId, loadQuiz)
+
+watch(
+  [quizName, isPublic, categoryNames, pointTiers, questions, playerNames],
+  () => {
+    if (!canEdit.value) return
+    if (lastSavedPayload.value === null) return
+    const current = JSON.stringify(buildInput())
+    if (current === lastSavedPayload.value) {
+      if (saveStatus.value === 'dirty') saveStatus.value = 'saved'
+      return
+    }
+    saveStatus.value = 'dirty'
+    if (saving.value) {
+      pendingChangesAfterSave = true
+      return
+    }
+    scheduleAutoSave()
+  },
+  { deep: true },
+)
+
+onBeforeUnmount(() => {
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+  }
+})
 
 // Categories & tiers (extensible)
 function addCategory() {
@@ -229,14 +306,17 @@ async function handleImageFile(catIdx: number, tierIdx: number, event: Event) {
   uploadError.value = null
   const key = uploadKey(catIdx, tierIdx, 'image')
   uploadingKey.value = key
+  let uploaded = false
   try {
     const result = await mediaApi.upload(file, 'IMAGE')
     questions[catIdx]![tierIdx]!.imageUrl = result.url
+    uploaded = true
   } catch (e) {
     uploadError.value = errorMessage(e, "Erreur d'upload de l'image")
   } finally {
     if (uploadingKey.value === key) uploadingKey.value = null
   }
+  if (uploaded) flushAutoSave()
 }
 
 function removeImage(catIdx: number, tierIdx: number) {
@@ -253,14 +333,17 @@ async function handleAudioFile(catIdx: number, tierIdx: number, event: Event) {
   uploadError.value = null
   const key = uploadKey(catIdx, tierIdx, 'audio')
   uploadingKey.value = key
+  let uploaded = false
   try {
     const result = await mediaApi.upload(file, 'AUDIO')
     cell.audioUrl = result.url
+    uploaded = true
   } catch (e) {
     uploadError.value = errorMessage(e, "Erreur d'upload de l'audio")
   } finally {
     if (uploadingKey.value === key) uploadingKey.value = null
   }
+  if (uploaded) flushAutoSave()
 }
 
 function removeAudio(catIdx: number, tierIdx: number) {
@@ -352,31 +435,104 @@ function buildInput(): QuizInput {
 
 async function saveQuiz() {
   if (!canEdit.value) return
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+  }
   saveMessage.value = null
   saveError.value = null
-  showValidation.value = true
-  if (totalIssueCount.value > 0) {
-    saveError.value = `Corrigez les ${totalIssueCount.value} case${
-      totalIssueCount.value > 1 ? 's' : ''
-    } en erreur avant de sauvegarder.`
-    return
-  }
+  if (saving.value) return
   saving.value = true
+  saveStatus.value = 'saving'
   try {
     const input = buildInput()
+    const payload = JSON.stringify(input)
+    const wasNew = quizId.value === null
     const detail = quizId.value
       ? await quizzesApi.update(quizId.value, input)
       : await quizzesApi.create(input)
     applyDetail(detail)
+    lastSavedPayload.value = payload
+    saveStatus.value = 'saved'
     saveMessage.value = 'Quiz sauvegardé'
-    if (isNewQuiz.value) {
+    if (wasNew) {
       router.replace(`/quizzes/${detail.id}`)
     }
   } catch (e) {
     saveError.value = e instanceof ApiError ? e.message : 'Erreur de sauvegarde'
+    saveStatus.value = 'error'
   } finally {
     saving.value = false
+    if (pendingChangesAfterSave) {
+      pendingChangesAfterSave = false
+      saveStatus.value = 'dirty'
+      scheduleAutoSave()
+    }
   }
+}
+
+async function autoSave() {
+  if (!canEdit.value) return
+  if (saving.value) {
+    pendingChangesAfterSave = true
+    return
+  }
+  const input = buildInput()
+  const payload = JSON.stringify(input)
+  if (payload === lastSavedPayload.value) {
+    saveStatus.value = 'saved'
+    return
+  }
+  saving.value = true
+  saveStatus.value = 'saving'
+  try {
+    const wasNew = quizId.value === null
+    const detail = quizId.value
+      ? await quizzesApi.update(quizId.value, input)
+      : await quizzesApi.create(input)
+    quizId.value = detail.id
+    ownerId.value = detail.ownerId
+    lastSavedPayload.value = payload
+    saveStatus.value = 'saved'
+    saveError.value = null
+    if (wasNew) {
+      router.replace(`/quizzes/${detail.id}`)
+    }
+  } catch (e) {
+    saveError.value = e instanceof ApiError ? e.message : 'Erreur de sauvegarde'
+    saveStatus.value = 'error'
+  } finally {
+    saving.value = false
+    if (pendingChangesAfterSave) {
+      pendingChangesAfterSave = false
+      saveStatus.value = 'dirty'
+      scheduleAutoSave()
+    }
+  }
+}
+
+function scheduleAutoSave() {
+  if (autoSaveTimer) clearTimeout(autoSaveTimer)
+  autoSaveTimer = setTimeout(() => {
+    autoSaveTimer = null
+    autoSave()
+  }, AUTO_SAVE_DEBOUNCE_MS)
+}
+
+function flushAutoSave() {
+  if (!canEdit.value) return
+  if (lastSavedPayload.value === null) return
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+  }
+  if (saving.value) {
+    pendingChangesAfterSave = true
+    return
+  }
+  const current = JSON.stringify(buildInput())
+  if (current === lastSavedPayload.value) return
+  autoSave()
 }
 
 // Export / Import
@@ -441,6 +597,7 @@ function handleImport(event: Event) {
       questions.splice(0, questions.length, ...built)
       activeCategoryTab.value = 0
       showValidation.value = false
+      flushAutoSave()
     } catch {
       alert('Erreur lors de la lecture du fichier JSON.')
     }
@@ -456,11 +613,15 @@ function canStart(): boolean {
   for (const name of categoryNames.value) {
     if (!name.trim()) return false
   }
+  if (totalIssueCount.value > 0) return false
   return true
 }
 
 function startGame() {
-  if (!canStart()) return
+  if (!canStart()) {
+    showValidation.value = true
+    return
+  }
   const validPlayers = playerNames.value
     .filter((n) => n.trim().length > 0)
     .map((name) => ({ name: name.trim() }))
@@ -477,7 +638,7 @@ function startGame() {
 </script>
 
 <template>
-  <div class="setup-page">
+  <div class="setup-page" @focusout="flushAutoSave">
     <header class="setup-header">
       <div class="header-top">
         <RouterLink to="/quizzes" class="btn btn-back">← Retour</RouterLink>
@@ -534,9 +695,6 @@ function startGame() {
         />
       </div>
 
-      <div v-if="saveMessage" class="banner banner-success">{{ saveMessage }}</div>
-      <div v-if="saveError" class="banner banner-error">{{ saveError }}</div>
-      <div v-if="uploadError" class="banner banner-error">{{ uploadError }}</div>
       <div v-if="showValidation && totalIssueCount > 0" class="banner banner-warning">
         {{ totalIssueCount }} case{{ totalIssueCount > 1 ? 's' : '' }} en erreur — voir
         signalisation rouge dans les onglets.
@@ -545,6 +703,40 @@ function startGame() {
         Connectez-vous pour sauvegarder ce quiz sur le serveur.
       </div>
     </section>
+
+    <Teleport to="body">
+      <div class="notification-tray" aria-live="polite">
+        <div
+          v-if="canEdit && saveStatus !== 'idle'"
+          class="toast"
+          :class="`toast-${saveStatus}`"
+        >
+          <span class="toast-dot" aria-hidden="true"></span>
+          <span class="toast-text">{{ saveStatusLabel }}</span>
+        </div>
+        <div v-if="saveMessage" class="toast toast-success">
+          <span class="toast-dot" aria-hidden="true"></span>
+          <span class="toast-text">{{ saveMessage }}</span>
+          <button class="toast-close" aria-label="Fermer" @click="saveMessage = null">
+            &times;
+          </button>
+        </div>
+        <div v-if="saveError" class="toast toast-error">
+          <span class="toast-dot" aria-hidden="true"></span>
+          <span class="toast-text">{{ saveError }}</span>
+          <button class="toast-close" aria-label="Fermer" @click="saveError = null">
+            &times;
+          </button>
+        </div>
+        <div v-if="uploadError" class="toast toast-error">
+          <span class="toast-dot" aria-hidden="true"></span>
+          <span class="toast-text">{{ uploadError }}</span>
+          <button class="toast-close" aria-label="Fermer" @click="uploadError = null">
+            &times;
+          </button>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- Players -->
     <section class="setup-section">
@@ -878,6 +1070,10 @@ function startGame() {
       <button class="btn btn-start" :disabled="!canStart()" @click="startGame">
         Lancer la partie !
       </button>
+      <p v-if="!canStart() && totalIssueCount > 0" class="start-hint">
+        Complétez les {{ totalIssueCount }} case{{ totalIssueCount > 1 ? 's' : '' }} en erreur pour
+        pouvoir lancer la partie.
+      </p>
     </div>
   </div>
 </template>
@@ -999,6 +1195,120 @@ function startGame() {
 
 .btn-save:disabled {
   opacity: 0.5;
+}
+
+@keyframes toast-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.notification-tray {
+  position: fixed;
+  bottom: 1.25rem;
+  right: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 2000;
+  pointer-events: none;
+  max-width: min(360px, calc(100vw - 2.5rem));
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: var(--color-white);
+  border: 2px solid var(--color-border);
+  color: var(--color-text);
+  box-shadow: var(--shadow-warm);
+  pointer-events: auto;
+  animation: toast-slide-in 0.2s ease;
+}
+
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.toast-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.toast-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.toast-close {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  line-height: 1;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 0 0.15rem;
+  flex-shrink: 0;
+}
+
+.toast-close:hover {
+  opacity: 1;
+}
+
+.toast-dirty {
+  background: #fff4d6;
+  border-color: #d99403;
+  color: #7a5300;
+}
+
+.toast-saving {
+  background: #e6f0ff;
+  border-color: #4a72c8;
+  color: #1f3d80;
+}
+
+.toast-saving .toast-dot {
+  animation: toast-pulse 1s ease-in-out infinite;
+}
+
+.toast-saved,
+.toast-success {
+  background: #e8f8f0;
+  border-color: var(--color-green);
+  color: var(--color-green);
+}
+
+.toast-error {
+  background: #fde8ea;
+  border-color: var(--color-red);
+  color: var(--color-red);
+}
+
+.start-hint {
+  margin-top: 0.75rem;
+  color: var(--color-red);
+  font-weight: 600;
+  font-size: 0.9rem;
 }
 
 .hidden-input {
